@@ -7,33 +7,25 @@ import android.view.accessibility.AccessibilityEvent
 class IGAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-
-        val pkg = event.packageName?.toString() ?: return
-
-        // Provjeri je li otvoren Instagram
-        if (pkg != Constants.INSTAGRAM_PKG) return
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
+            event.packageName != Constants.INSTAGRAM_PKG) return
 
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
-        var isUnlocked = prefs.getBoolean("is_unlocked", false)
-        val unlockStart = prefs.getLong("unlock_start", 0L)
         val now = System.currentTimeMillis()
+        val unlockStart = prefs.getLong("unlock_start", 0L)
+        
+        // Instagram je otključan samo ako je is_unlocked true I ako nije prošla 1 minuta
+        val isExpired = now >= (unlockStart + Constants.UNLOCK_DURATION_MS)
+        val isUnlocked = prefs.getBoolean("is_unlocked", false) && !isExpired
 
-        // 🔄 Provjeri je li vrijeme otključanosti (ON) isteklo
-        if (isUnlocked && unlockStart > 0) {
-            val unlockEnd = unlockStart + Constants.UNLOCK_DURATION_MS
-            if (now >= unlockEnd) {
-                isUnlocked = false
-                prefs.edit()
-                    .putBoolean("is_unlocked", false)
-                    .putLong("unlock_start", 0L)
-                    .apply()
-            }
-        }
-
-        // Ako je isUnlocked = false (stanje OFF), blokiraj pristup
         if (!isUnlocked) {
+            // Blokiraj ako nije otključano ili je vrijeme isteklo
             performGlobalAction(GLOBAL_ACTION_HOME)
+            
+            // Ako je vrijeme isteklo a još stoji is_unlocked = true, ugasi ga
+            if (isExpired && prefs.getBoolean("is_unlocked", false)) {
+                prefs.edit().putBoolean("is_unlocked", false).apply()
+            }
         }
     }
 

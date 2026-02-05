@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -24,106 +25,83 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.work.*
-import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         createNotificationChannel()
 
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                1001
-            )
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
 
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
 
         setContent {
-            var isUnlocked by remember {
-                mutableStateOf(prefs.getBoolean("is_unlocked", false))
-            }
+            // Ponovno učitavanje stanja svakih par sekundi za UI
+            var isUnlocked by remember { mutableStateOf(prefs.getBoolean("is_unlocked", false)) }
+            val now = System.currentTimeMillis()
+            val lastUnlock = prefs.getLong("unlock_start", 0L)
+            val nextAvailable = lastUnlock + Constants.COOLDOWN_DURATION_MS
+            val waitMillis = nextAvailable - now
 
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black),
-                contentAlignment = Alignment.Center
-            ) {
+            Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Box(
                         modifier = Modifier
                             .size(220.dp)
-                            .background(
-                                color = if (isUnlocked) Color(0xFF00C853) else Color.Red,
-                                shape = CircleShape
-                            )
+                            .background(if (isUnlocked) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
+                                val currentNow = System.currentTimeMillis()
+                                val currentWait = (prefs.getLong("unlock_start", 0L) + Constants.COOLDOWN_DURATION_MS) - currentNow
+
                                 if (!isUnlocked) {
-                                    prefs.edit()
-                                        .putBoolean("is_unlocked", true)
-                                        .putLong("unlock_start", System.currentTimeMillis())
-                                        .apply()
-                                    isUnlocked = true
+                                    if (currentWait <= 0) {
+                                        isUnlocked = true
+                                        prefs.edit().apply {
+                                            putBoolean("is_unlocked", true)
+                                            putLong("unlock_start", currentNow)
+                                        }.apply()
+                                        startWorker()
+                                    } else {
+                                        val minutesLeft = (currentWait / 60000) + 1
+                                        Toast.makeText(this@MainActivity, "Čekaj još $minutesLeft min", Toast.LENGTH_SHORT).show()
+                                    }
                                 } else {
-                                    prefs.edit()
-                                        .putBoolean("is_unlocked", false)
-                                        .putLong("unlock_start", 0L)
-                                        .apply()
+                                    // Ručno zaključavanje
                                     isUnlocked = false
+                                    prefs.edit().putBoolean("is_unlocked", false).apply()
+                                    startWorker()
                                 }
-                                startWorker()
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (isUnlocked) "ON" else "OFF",
-                            color = Color.White,
-                            fontSize = 44.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Text(if (isUnlocked) "ON" else "OFF", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
                     }
+                    Spacer(Modifier.height(20.dp))
                     
-                    Spacer(modifier = Modifier.height(20.dp))
-                    
-                    Text(
-                        text = if (isUnlocked) "Instagram je OTKLJUČAN" else "Instagram je BLOKIRAN",
-                        color = Color.Gray,
-                        fontSize = 14.sp
-                    )
+                    val statusText = if (isUnlocked) "OTKLJUČANO" 
+                                    else if (waitMillis > 0) "Dostupno za: ${waitMillis / 60000} min"
+                                    else "SPREMNO ZA KORIŠTENJE"
+
+                    Text(statusText, color = Color.Gray, fontSize = 14.sp)
                 }
             }
         }
     }
 
     private fun startWorker() {
-        val oneTimeWork = OneTimeWorkRequestBuilder<InstagramLimitWorker>().build()
-        WorkManager.getInstance(this)
-            .enqueueUniqueWork(
-                "ig_block_worker",
-                ExistingWorkPolicy.REPLACE,
-                oneTimeWork
-            )
+        val work = OneTimeWorkRequestBuilder<InstagramLimitWorker>().build()
+        WorkManager.getInstance(this).enqueueUniqueWork("ig_worker", ExistingWorkPolicy.REPLACE, work)
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                Constants.CHANNEL_ID,
-                "Instagram Block",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                setShowBadge(false)
+            val nm = getSystemService(NotificationManager::class.java)
+            val channel = NotificationChannel(Constants.CHANNEL_ID, "IG Block", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Instagram Blocker Status"
             }
-
-            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             nm.createNotificationChannel(channel)
         }
     }
