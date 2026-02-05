@@ -1,7 +1,10 @@
 package com.example.igblocker
 
 import android.accessibilityservice.AccessibilityService
+<<<<<<< HEAD
 import android.content.Context
+=======
+>>>>>>> a4d021dcbde99dca50d3ac8165cd794d63af0d36
 import android.view.accessibility.AccessibilityEvent
 
 class IGAccessibilityService : AccessibilityService() {
@@ -11,6 +14,7 @@ class IGAccessibilityService : AccessibilityService() {
 
         val pkg = event.packageName?.toString() ?: return
 
+<<<<<<< HEAD
         // Samo ako se pokušava otvoriti Instagram
         if (pkg != Constants.INSTAGRAM_PKG) return
 
@@ -34,6 +38,15 @@ class IGAccessibilityService : AccessibilityService() {
 
         // AKO JE OFF (isUnlocked = false), BLOKIRAJ
         if (!isUnlocked) {
+=======
+
+        if (pkg != Constants.INSTAGRAM_PKG) return
+
+        val prefs = getSharedPreferences("ig_prefs", MODE_PRIVATE)
+        val blockActive = prefs.getBoolean("block_active", false)
+
+        if (blockActive) {
+>>>>>>> a4d021dcbde99dca50d3ac8165cd794d63af0d36
             performGlobalAction(GLOBAL_ACTION_HOME)
         }
     }
