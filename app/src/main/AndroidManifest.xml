@@ -1,26 +1,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.BIND_DEVICE_ADMIN" />
 
     <application
         android:label="IG Blocker"
-        android:allowBackup="false">
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher">
 
         <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".BlockActivity"
-            android:exported="false"
-            android:excludeFromRecents="true"
-            android:taskAffinity=""
-            android:launchMode="singleTask" />
+        <service
+            android:name=".BlockForegroundService"
+            android:foregroundServiceType="specialUse"
+            android:exported="false" />
 
         <service
             android:name=".IGAccessibilityService"
@@ -33,6 +34,18 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_config" />
         </service>
+
+        <receiver
+            android:name=".MyDeviceAdminReceiver"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_rules" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
 
     </application>
 </manifest>

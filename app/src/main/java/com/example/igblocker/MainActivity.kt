@@ -3,12 +3,15 @@ package com.example.igblocker
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -33,6 +36,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createNotificationChannel()
+        checkAndRequestDeviceAdmin()
+        
+        // Provjeri i zatraži Accessibility Service
+        if (!isAccessibilityServiceEnabled(this)) {
+            openAccessibilitySettings()
+        }
 
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
@@ -113,6 +122,33 @@ class MainActivity : ComponentActivity() {
                     Text(statusText, color = Color.Gray, fontSize = 14.sp)
                 }
             }
+        }
+    }
+
+    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        val service = "${context.packageName}/${IGAccessibilityService::class.java.canonicalName}"
+        val enabledServices = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        )
+        return enabledServices?.contains(service) == true
+    }
+
+    private fun openAccessibilitySettings() {
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        startActivity(intent)
+        Toast.makeText(this, "Pronađi 'IG Blocker' i uključi ga", Toast.LENGTH_LONG).show()
+    }
+
+    private fun checkAndRequestDeviceAdmin() {
+        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val componentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
+        if (!dpm.isAdminActive(componentName)) {
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+                putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
+                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Aktiviraj za zaštitu od brisanja.")
+            }
+            startActivity(intent)
         }
     }
 
