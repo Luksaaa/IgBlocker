@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.work.*
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -39,12 +40,21 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
 
         setContent {
-            // Ponovno učitavanje stanja svakih par sekundi za UI
             var isUnlocked by remember { mutableStateOf(prefs.getBoolean("is_unlocked", false)) }
-            val now = System.currentTimeMillis()
+            var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
+
+            // Osvježava UI svake sekunde za točan prikaz preostalog vremena
+            LaunchedEffect(Unit) {
+                while(true) {
+                    currentTime = System.currentTimeMillis()
+                    isUnlocked = prefs.getBoolean("is_unlocked", false)
+                    delay(1000)
+                }
+            }
+
             val lastUnlock = prefs.getLong("unlock_start", 0L)
             val nextAvailable = lastUnlock + Constants.COOLDOWN_DURATION_MS
-            val waitMillis = nextAvailable - now
+            val waitMillis = nextAvailable - currentTime
 
             Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -53,23 +63,22 @@ class MainActivity : ComponentActivity() {
                             .size(220.dp)
                             .background(if (isUnlocked) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
-                                val currentNow = System.currentTimeMillis()
-                                val currentWait = (prefs.getLong("unlock_start", 0L) + Constants.COOLDOWN_DURATION_MS) - currentNow
+                                val currentWait = (prefs.getLong("unlock_start", 0L) + Constants.COOLDOWN_DURATION_MS) - System.currentTimeMillis()
 
                                 if (!isUnlocked) {
                                     if (currentWait <= 0) {
                                         isUnlocked = true
                                         prefs.edit().apply {
                                             putBoolean("is_unlocked", true)
-                                            putLong("unlock_start", currentNow)
+                                            putLong("unlock_start", System.currentTimeMillis())
                                         }.apply()
                                         startWorker()
                                     } else {
-                                        val minutesLeft = (currentWait / 60000) + 1
-                                        Toast.makeText(this@MainActivity, "Čekaj još $minutesLeft min", Toast.LENGTH_SHORT).show()
+                                        val m = (currentWait / 60000)
+                                        val s = (currentWait % 60000) / 1000
+                                        Toast.makeText(this@MainActivity, "Čekaj još ${m}m ${s}s", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    // Ručno zaključavanje
                                     isUnlocked = false
                                     prefs.edit().putBoolean("is_unlocked", false).apply()
                                     startWorker()
@@ -82,7 +91,11 @@ class MainActivity : ComponentActivity() {
                     Spacer(Modifier.height(20.dp))
                     
                     val statusText = if (isUnlocked) "OTKLJUČANO" 
-                                    else if (waitMillis > 0) "Dostupno za: ${waitMillis / 60000} min"
+                                    else if (waitMillis > 0) {
+                                        val m = waitMillis / 60000
+                                        val s = (waitMillis % 60000) / 1000
+                                        "Dostupno za: ${m}m ${s}s"
+                                    }
                                     else "SPREMNO ZA KORIŠTENJE"
 
                     Text(statusText, color = Color.Gray, fontSize = 14.sp)

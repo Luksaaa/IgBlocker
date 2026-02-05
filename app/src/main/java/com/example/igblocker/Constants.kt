@@ -5,9 +5,11 @@ object Constants {
     const val NOTIF_ID = 999
     const val INSTAGRAM_PKG = "com.instagram.android"
     
-    // ⏱ Koliko dugo se Instagram može koristiti (1 minuta)
-    const val UNLOCK_DURATION_MS = 60 * 1000L
-    
-    // ⏱ Koliko dugo se mora čekati nakon korištenja (1 sat)
-    const val COOLDOWN_DURATION_MS = 60 * 60 * 1000L
+    // --- LAKO ZA PROMIJENITI ---
+    private const val MINUTES_TO_USE = 1       // Promijeni ovo za test (npr. 0.5 za 30s)
+    private const val MINUTES_TO_WAIT = 1 // Koliko se čeka (60 min = 1 sat)
+    // ---------------------------
+
+    const val UNLOCK_DURATION_MS = (MINUTES_TO_USE * 60 * 1000).toLong()
+    const val COOLDOWN_DURATION_MS = (MINUTES_TO_WAIT * 60 * 1000).toLong()
 }
