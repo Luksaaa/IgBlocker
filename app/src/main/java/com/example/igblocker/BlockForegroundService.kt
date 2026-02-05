@@ -24,9 +24,10 @@ class BlockForegroundService : Service() {
         if (isUnlocked && now < unlockEnd) {
             startTimer(unlockEnd - now)
         } else {
+            // Ako nije otključano, servis se ne bi trebao pokretati ili se gasi
             stopSelf()
         }
-        
+
         return START_STICKY
     }
 
@@ -48,17 +49,18 @@ class BlockForegroundService : Service() {
 
     private fun updateNotification(remainingMs: Long) {
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
-        val unlockEnd = prefs.getLong("unlock_start", 0L) + Constants.UNLOCK_DURATION_MS
-        
-        val timeStr = String.format("%02d:%02d", 
+        val unlockStart = prefs.getLong("unlock_start", 0L)
+        val unlockEnd = unlockStart + Constants.UNLOCK_DURATION_MS
+
+        val timeStr = String.format("%02d:%02d",
             TimeUnit.MILLISECONDS.toMinutes(remainingMs),
             TimeUnit.MILLISECONDS.toSeconds(remainingMs) % 60)
-        
-        val unlockAt = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(unlockEnd))
+
+        val unlockAt = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(unlockEnd))
 
         val notification = NotificationCompat.Builder(this, Constants.CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-            .setContentTitle("Instagram: OTKLJUČANO")
+            .setContentTitle("Instagram je OTKLJUČAN")
             .setContentText("Blokiranje za: $timeStr (u $unlockAt)")
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
