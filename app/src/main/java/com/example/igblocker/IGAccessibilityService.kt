@@ -10,37 +10,37 @@ class IGAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
+        val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
 
-        // 🛡️ OŠTRA ZAŠTITA OD DEINSTALACIJE I UKIDANJA ADMINA
-        // Skeniramo sistemske postavke i instalacijske procese
+        // 🛡️ PRECIZNA ZAŠTITA OD DEINSTALACIJE
+        // Ciljamo samo ekran s detaljima naše aplikacije u Postavkama
         if (pkg.contains("settings") || pkg.contains("packageinstaller")) {
             val rootNode = rootInActiveWindow ?: event.source ?: return
-            val allText = getAllText(rootNode).lowercase()
             
-            // Meta je naša aplikacija
-            val isTarget = allText.contains("ig blocker")
-            
-            // Radnje koje želimo blokirati
-            val dangerousKeywords = listOf(
-                "uninstall", "deinstall", "ukloni", "obriši", "izbriši", 
-                "force stop", "prisilno zaustavi", "deactivate", "deaktiviraj", 
-                "clear data", "očisti podatke", "storage", "pohrana"
-            )
+            // Tražimo točno našu aplikaciju na ekranu
+            val nodes = rootNode.findAccessibilityNodeInfosByText("IG Blocker")
+            if (nodes.isNotEmpty()) {
+                val allText = getAllText(rootNode).lowercase()
+                
+                // Blokiramo samo ako su vidljivi gumbi za brisanje ili gašenje admina
+                val dangerousKeywords = listOf(
+                    "uninstall", "deinstall", "ukloni", "obriši", "izbriši", 
+                    "force stop", "prisilno zaustavi", "clear data", "očisti podatke"
+                )
 
-            val isDangerousAction = dangerousKeywords.any { allText.contains(it) }
-
-            if (isTarget && isDangerousAction) {
-                // Mudra i oštra obrana: korisnik se šalje na početni ekran
-                performGlobalAction(GLOBAL_ACTION_HOME)
-                rootNode.recycle()
-                return
+                if (dangerousKeywords.any { allText.contains(it) }) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    rootNode.recycle()
+                    return
+                }
             }
             rootNode.recycle()
         }
 
-        // 📸 BLOKIRANJE INSTAGRAMA
-        if (pkg == Constants.INSTAGRAM_PKG) {
-            val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
+        // 🚫 BLOKIRANJE SAMO ODABRANIH APLIKACIJA
+        val blockedPackages = prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()
+        
+        if (blockedPackages.contains(pkg)) {
             val nowElapsed = SystemClock.elapsedRealtime()
             val startElapsed = prefs.getLong("unlock_start_elapsed", 0L)
             
