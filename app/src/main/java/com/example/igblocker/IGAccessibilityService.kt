@@ -4,27 +4,38 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 
 class IGAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
-
         val pkg = event.packageName?.toString() ?: return
 
-        // 🛡️ ZAŠTITA OD BRISANJA (Blokiranje postavki aplikacija)
-        // Ako korisnik pokuša ući u postavke aplikacija ili uređaja
-        if (pkg == "com.android.settings") {
-            val contentDescription = event.contentDescription?.toString()?.lowercase() ?: ""
-            val className = event.className?.toString()?.lowercase() ?: ""
+        // 🛡️ OŠTRA ZAŠTITA OD DEINSTALACIJE I UKIDANJA ADMINA
+        // Skeniramo sistemske postavke i instalacijske procese
+        if (pkg.contains("settings") || pkg.contains("packageinstaller")) {
+            val rootNode = rootInActiveWindow ?: event.source ?: return
+            val allText = getAllText(rootNode).lowercase()
             
-            // Ako se u postavkama spominje "ig blocker", "admin" ili "deinstaliraj", izbaci ga
-            if (contentDescription.contains("ig blocker") || 
-                className.contains("uninstalldeviceadmin") || 
-                className.contains("deviceadminadd")) {
+            // Meta je naša aplikacija
+            val isTarget = allText.contains("ig blocker")
+            
+            // Radnje koje želimo blokirati
+            val dangerousKeywords = listOf(
+                "uninstall", "deinstall", "ukloni", "obriši", "izbriši", 
+                "force stop", "prisilno zaustavi", "deactivate", "deaktiviraj", 
+                "clear data", "očisti podatke", "storage", "pohrana"
+            )
+
+            val isDangerousAction = dangerousKeywords.any { allText.contains(it) }
+
+            if (isTarget && isDangerousAction) {
+                // Mudra i oštra obrana: korisnik se šalje na početni ekran
                 performGlobalAction(GLOBAL_ACTION_HOME)
+                rootNode.recycle()
                 return
             }
+            rootNode.recycle()
         }
 
         // 📸 BLOKIRANJE INSTAGRAMA
@@ -43,6 +54,20 @@ class IGAccessibilityService : AccessibilityService() {
                 }
             }
         }
+    }
+
+    private fun getAllText(node: AccessibilityNodeInfo?): String {
+        if (node == null) return ""
+        val sb = StringBuilder()
+        node.text?.let { sb.append(it).append(" ") }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            if (child != null) {
+                sb.append(getAllText(child))
+                child.recycle()
+            }
+        }
+        return sb.toString()
     }
 
     override fun onInterrupt() {}

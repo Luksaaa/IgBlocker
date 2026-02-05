@@ -39,13 +39,8 @@ class MainActivity : ComponentActivity() {
         
         createNotificationChannel()
 
-        // FLOW prema tvojim slikama: 1. Admin -> 2. Accessibility
-        if (!isAdminActive()) {
-            checkAndRequestDeviceAdmin()
-        } else if (!isAccessibilityServiceEnabled(this)) {
-            openAccessibilitySettings()
-        }
-
+        // POTPUNA SLOBODA: Nema više automatskog iskakanja postavki ovdje.
+        
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
         }
@@ -74,6 +69,7 @@ class MainActivity : ComponentActivity() {
                             .size(220.dp)
                             .background(if (isUnlocked) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
+                                // Postavke se otvaraju SAMO kada ti svjesno klikneš na gumb
                                 if (!isAdminActive()) {
                                     checkAndRequestDeviceAdmin()
                                     return@clickable
@@ -94,7 +90,7 @@ class MainActivity : ComponentActivity() {
                                             putLong("unlock_start_elapsed", nowElapsed)
                                         }
                                         startBlockService()
-                                        moveTaskToBack(true)
+                                        moveTaskToBack(true) // Samo pri aktivaciji se minimizira
                                     } else {
                                         val m = currentWait / 60000
                                         val s = (currentWait % 60000) / 1000
@@ -134,19 +130,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (isAccessibilityServiceEnabled(this) && isAdminActive()) {
-            moveTaskToBack(true)
-        }
+        // Ovdje više nema koda koji te izbacuje van.
+        // Kad uđeš u aplikaciju, ostaješ u njoj dok sam ne izađeš.
     }
 
     private fun openAccessibilitySettings() {
-        // Otvara prvu sliku koju si poslao
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-        
         try {
             startActivity(intent)
-            // Uputa za drugu sliku
-            Toast.makeText(this, "KLIKNI: Installed apps -> IG Blocker -> Uključi", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             startActivity(Intent(Settings.ACTION_SETTINGS))
         }
@@ -173,7 +164,7 @@ class MainActivity : ComponentActivity() {
         if (!dpm.isAdminActive(componentName)) {
             val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                 putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
-                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Potrebno za zaštitu od brisanja.")
+                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Zaštita od deinstalacije.")
             }
             startActivity(intent)
         }
