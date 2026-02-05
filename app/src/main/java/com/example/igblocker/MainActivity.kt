@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -24,7 +25,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.work.*
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -43,18 +43,23 @@ class MainActivity : ComponentActivity() {
             var isUnlocked by remember { mutableStateOf(prefs.getBoolean("is_unlocked", false)) }
             var currentTime by remember { mutableStateOf(System.currentTimeMillis()) }
 
-            // Osvježava UI svake sekunde za točan prikaz preostalog vremena
             LaunchedEffect(Unit) {
-                while(true) {
+                while (true) {
                     currentTime = System.currentTimeMillis()
-                    isUnlocked = prefs.getBoolean("is_unlocked", false)
+                    val currentIsUnlocked = prefs.getBoolean("is_unlocked", false)
+                    if (isUnlocked != currentIsUnlocked) {
+                        isUnlocked = currentIsUnlocked
+                    }
                     delay(1000)
                 }
             }
 
             val lastUnlock = prefs.getLong("unlock_start", 0L)
-            val nextAvailable = lastUnlock + Constants.COOLDOWN_DURATION_MS
-            val waitMillis = nextAvailable - currentTime
+            val unlockEnd = lastUnlock + Constants.UNLOCK_DURATION_MS
+            val cooldownEnd = lastUnlock + Constants.COOLDOWN_DURATION_MS
+
+            val unlockRemaining = unlockEnd - currentTime
+            val cooldownRemaining = cooldownEnd - currentTime
 
             Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -63,25 +68,22 @@ class MainActivity : ComponentActivity() {
                             .size(220.dp)
                             .background(if (isUnlocked) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
-                                val currentWait = (prefs.getLong("unlock_start", 0L) + Constants.COOLDOWN_DURATION_MS) - System.currentTimeMillis()
-
                                 if (!isUnlocked) {
-                                    if (currentWait <= 0) {
-                                        isUnlocked = true
+                                    if (cooldownRemaining <= 0) {
                                         prefs.edit().apply {
                                             putBoolean("is_unlocked", true)
                                             putLong("unlock_start", System.currentTimeMillis())
                                         }.apply()
-                                        startWorker()
+                                        startForegroundService(Intent(this@MainActivity, BlockForegroundService::class.java))
                                     } else {
-                                        val m = (currentWait / 60000)
-                                        val s = (currentWait % 60000) / 1000
+                                        val m = cooldownRemaining / 60000
+                                        val s = (cooldownRemaining % 60000) / 1000
                                         Toast.makeText(this@MainActivity, "Čekaj još ${m}m ${s}s", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    isUnlocked = false
+                                    // Manualno gašenje servisa (opcionalno)
                                     prefs.edit().putBoolean("is_unlocked", false).apply()
-                                    startWorker()
+                                    stopService(Intent(this@MainActivity, BlockForegroundService::class.java))
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -89,32 +91,30 @@ class MainActivity : ComponentActivity() {
                         Text(if (isUnlocked) "ON" else "OFF", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(20.dp))
-                    
-                    val statusText = if (isUnlocked) "OTKLJUČANO" 
-                                    else if (waitMillis > 0) {
-                                        val m = waitMillis / 60000
-                                        val s = (waitMillis % 60000) / 1000
-                                        "Dostupno za: ${m}m ${s}s"
-                                    }
-                                    else "SPREMNO ZA KORIŠTENJE"
 
+                    val statusText = when {
+                        isUnlocked -> {
+                            val m = unlockRemaining / 60000
+                            val s = (unlockRemaining % 60000) / 1000
+                            "OTKLJUČANO: ${m}m ${s}s"
+                        }
+                        cooldownRemaining > 0 -> {
+                            val m = cooldownRemaining / 60000
+                            val s = (cooldownRemaining % 60000) / 1000
+                            "Dostupno za: ${m}m ${s}s"
+                        }
+                        else -> "SPREMNO ZA KORIŠTENJE"
+                    }
                     Text(statusText, color = Color.Gray, fontSize = 14.sp)
                 }
             }
         }
     }
 
-    private fun startWorker() {
-        val work = OneTimeWorkRequestBuilder<InstagramLimitWorker>().build()
-        WorkManager.getInstance(this).enqueueUniqueWork("ig_worker", ExistingWorkPolicy.REPLACE, work)
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(Constants.CHANNEL_ID, "IG Block", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Instagram Blocker Status"
-            }
+            val channel = NotificationChannel(Constants.CHANNEL_ID, "IG Blocker", NotificationManager.IMPORTANCE_HIGH)
             nm.createNotificationChannel(channel)
         }
     }
