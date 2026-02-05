@@ -29,17 +29,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        createNotificationChannel()
-        checkAndRequestDeviceAdmin()
         
-        // Provjeri i zatraži Accessibility Service
-        if (!isAccessibilityServiceEnabled(this)) {
+        createNotificationChannel()
+
+        // FLOW prema tvojim slikama: 1. Admin -> 2. Accessibility
+        if (!isAdminActive()) {
+            checkAndRequestDeviceAdmin()
+        } else if (!isAccessibilityServiceEnabled(this)) {
             openAccessibilitySettings()
         }
 
@@ -51,7 +54,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var isUnlocked by remember { mutableStateOf(prefs.getBoolean("is_unlocked", false)) }
-            var currentElapsed by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+            var currentElapsed by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
 
             LaunchedEffect(Unit) {
                 while (true) {
@@ -62,8 +65,7 @@ class MainActivity : ComponentActivity() {
             }
 
             val lastUnlockElapsed = prefs.getLong("unlock_start_elapsed", 0L)
-            val nextAvailableElapsed = lastUnlockElapsed + Constants.COOLDOWN_DURATION_MS
-            val waitMillis = nextAvailableElapsed - currentElapsed
+            val waitMillis = (lastUnlockElapsed + Constants.COOLDOWN_DURATION_MS) - currentElapsed
 
             Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -72,23 +74,27 @@ class MainActivity : ComponentActivity() {
                             .size(220.dp)
                             .background(if (isUnlocked) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
+                                if (!isAdminActive()) {
+                                    checkAndRequestDeviceAdmin()
+                                    return@clickable
+                                }
+                                if (!isAccessibilityServiceEnabled(this@MainActivity)) {
+                                    openAccessibilitySettings()
+                                    return@clickable
+                                }
+
                                 val nowElapsed = SystemClock.elapsedRealtime()
                                 val currentWait = (prefs.getLong("unlock_start_elapsed", 0L) + Constants.COOLDOWN_DURATION_MS) - nowElapsed
 
                                 if (!isUnlocked) {
                                     if (currentWait <= 0) {
                                         isUnlocked = true
-                                        prefs.edit().apply {
+                                        prefs.edit {
                                             putBoolean("is_unlocked", true)
                                             putLong("unlock_start_elapsed", nowElapsed)
-                                        }.apply()
-                                        
-                                        val serviceIntent = Intent(this@MainActivity, BlockForegroundService::class.java)
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                            startForegroundService(serviceIntent)
-                                        } else {
-                                            startService(serviceIntent)
                                         }
+                                        startBlockService()
+                                        moveTaskToBack(true)
                                     } else {
                                         val m = currentWait / 60000
                                         val s = (currentWait % 60000) / 1000
@@ -96,7 +102,7 @@ class MainActivity : ComponentActivity() {
                                     }
                                 } else {
                                     isUnlocked = false
-                                    prefs.edit().putBoolean("is_unlocked", false).apply()
+                                    prefs.edit { putBoolean("is_unlocked", false) }
                                     stopService(Intent(this@MainActivity, BlockForegroundService::class.java))
                                 }
                             },
@@ -104,7 +110,8 @@ class MainActivity : ComponentActivity() {
                     ) {
                         Text(if (isUnlocked) "ON" else "OFF", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
                     }
-                    Spacer(Modifier.height(20.dp))
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
                     
                     val statusText = if (isUnlocked) {
                         val remaining = (lastUnlockElapsed + Constants.UNLOCK_DURATION_MS) - currentElapsed
@@ -117,7 +124,7 @@ class MainActivity : ComponentActivity() {
                         val m = waitMillis / 60000
                         val s = (waitMillis % 60000) / 1000
                         "Dostupno za: ${m}m ${s}s"
-                    } else "SPREMNO ZA KORIŠTENJE"
+                    } else "SPREMNO"
 
                     Text(statusText, color = Color.Gray, fontSize = 14.sp)
                 }
@@ -125,38 +132,55 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
-        val service = "${context.packageName}/${IGAccessibilityService::class.java.canonicalName}"
-        val enabledServices = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        )
-        return enabledServices?.contains(service) == true
+    override fun onResume() {
+        super.onResume()
+        if (isAccessibilityServiceEnabled(this) && isAdminActive()) {
+            moveTaskToBack(true)
+        }
     }
 
     private fun openAccessibilitySettings() {
+        // Otvara prvu sliku koju si poslao
         val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-        startActivity(intent)
-        Toast.makeText(this, "Pronađi 'IG Blocker' i uključi ga", Toast.LENGTH_LONG).show()
+        
+        try {
+            startActivity(intent)
+            // Uputa za drugu sliku
+            Toast.makeText(this, "KLIKNI: Installed apps -> IG Blocker -> Uključi", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            startActivity(Intent(Settings.ACTION_SETTINGS))
+        }
+    }
+
+    private fun startBlockService() {
+        startForegroundService(Intent(this, BlockForegroundService::class.java))
+    }
+
+    private fun isAccessibilityServiceEnabled(context: Context): Boolean {
+        val service = "${context.packageName}/${IGAccessibilityService::class.java.canonicalName}"
+        val enabledServices = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        return enabledServices?.contains(service) == true
+    }
+
+    private fun isAdminActive(): Boolean {
+        val dpm = getSystemService(DevicePolicyManager::class.java)
+        return dpm.isAdminActive(ComponentName(this, MyDeviceAdminReceiver::class.java))
     }
 
     private fun checkAndRequestDeviceAdmin() {
-        val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val dpm = getSystemService(DevicePolicyManager::class.java)
         val componentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
         if (!dpm.isAdminActive(componentName)) {
             val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
                 putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
-                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Aktiviraj za zaštitu od brisanja.")
+                putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Potrebno za zaštitu od brisanja.")
             }
             startActivity(intent)
         }
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val nm = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(Constants.CHANNEL_ID, "IG Blocker", NotificationManager.IMPORTANCE_HIGH)
-            nm.createNotificationChannel(channel)
-        }
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(NotificationChannel(Constants.CHANNEL_ID, "System Sync", NotificationManager.IMPORTANCE_LOW))
     }
 }
