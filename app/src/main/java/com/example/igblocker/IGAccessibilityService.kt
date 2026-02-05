@@ -2,6 +2,7 @@ package com.example.igblocker
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 
 class IGAccessibilityService : AccessibilityService() {
@@ -11,18 +12,15 @@ class IGAccessibilityService : AccessibilityService() {
             event.packageName != Constants.INSTAGRAM_PKG) return
 
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        val unlockStart = prefs.getLong("unlock_start", 0L)
+        val nowElapsed = SystemClock.elapsedRealtime()
+        val startElapsed = prefs.getLong("unlock_start_elapsed", 0L)
         
-        // Instagram je otključan samo ako je is_unlocked true I ako nije prošlo 1 minuta
-        val isExpired = now >= (unlockStart + Constants.UNLOCK_DURATION_MS)
+        // Provjeri je li otključan i je li vrijeme isteklo (elapsedRealtime je imun na promjenu sata)
+        val isExpired = nowElapsed >= (startElapsed + Constants.UNLOCK_DURATION_MS)
         val isUnlocked = prefs.getBoolean("is_unlocked", false) && !isExpired
 
         if (!isUnlocked) {
-            // Blokiraj ako nije otključano ili je vrijeme isteklo
             performGlobalAction(GLOBAL_ACTION_HOME)
-            
-            // Automatski resetiraj stanje ako je vrijeme isteklo
             if (isExpired && prefs.getBoolean("is_unlocked", false)) {
                 prefs.edit().putBoolean("is_unlocked", false).apply()
             }

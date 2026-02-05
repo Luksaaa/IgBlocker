@@ -4,9 +4,11 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -24,7 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.work.*
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -39,12 +41,20 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
 
         setContent {
-            // Ponovno učitavanje stanja svakih par sekundi za UI
             var isUnlocked by remember { mutableStateOf(prefs.getBoolean("is_unlocked", false)) }
-            val now = System.currentTimeMillis()
-            val lastUnlock = prefs.getLong("unlock_start", 0L)
-            val nextAvailable = lastUnlock + Constants.COOLDOWN_DURATION_MS
-            val waitMillis = nextAvailable - now
+            var currentElapsed by remember { mutableStateOf(SystemClock.elapsedRealtime()) }
+
+            LaunchedEffect(Unit) {
+                while (true) {
+                    currentElapsed = SystemClock.elapsedRealtime()
+                    isUnlocked = prefs.getBoolean("is_unlocked", false)
+                    delay(1000)
+                }
+            }
+
+            val lastUnlockElapsed = prefs.getLong("unlock_start_elapsed", 0L)
+            val nextAvailableElapsed = lastUnlockElapsed + Constants.COOLDOWN_DURATION_MS
+            val waitMillis = nextAvailableElapsed - currentElapsed
 
             Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -53,26 +63,32 @@ class MainActivity : ComponentActivity() {
                             .size(220.dp)
                             .background(if (isUnlocked) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
-                                val currentNow = System.currentTimeMillis()
-                                val currentWait = (prefs.getLong("unlock_start", 0L) + Constants.COOLDOWN_DURATION_MS) - currentNow
+                                val nowElapsed = SystemClock.elapsedRealtime()
+                                val currentWait = (prefs.getLong("unlock_start_elapsed", 0L) + Constants.COOLDOWN_DURATION_MS) - nowElapsed
 
                                 if (!isUnlocked) {
                                     if (currentWait <= 0) {
                                         isUnlocked = true
                                         prefs.edit().apply {
                                             putBoolean("is_unlocked", true)
-                                            putLong("unlock_start", currentNow)
+                                            putLong("unlock_start_elapsed", nowElapsed)
                                         }.apply()
-                                        startWorker()
+                                        
+                                        val serviceIntent = Intent(this@MainActivity, BlockForegroundService::class.java)
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            startForegroundService(serviceIntent)
+                                        } else {
+                                            startService(serviceIntent)
+                                        }
                                     } else {
-                                        val minutesLeft = (currentWait / 60000) + 1
-                                        Toast.makeText(this@MainActivity, "Čekaj još $minutesLeft min", Toast.LENGTH_SHORT).show()
+                                        val m = currentWait / 60000
+                                        val s = (currentWait % 60000) / 1000
+                                        Toast.makeText(this@MainActivity, "Čekaj još ${m}m ${s}s", Toast.LENGTH_SHORT).show()
                                     }
                                 } else {
-                                    // Ručno zaključavanje
                                     isUnlocked = false
                                     prefs.edit().putBoolean("is_unlocked", false).apply()
-                                    startWorker()
+                                    stopService(Intent(this@MainActivity, BlockForegroundService::class.java))
                                 }
                             },
                         contentAlignment = Alignment.Center
@@ -80,10 +96,19 @@ class MainActivity : ComponentActivity() {
                         Text(if (isUnlocked) "ON" else "OFF", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
                     }
                     Spacer(Modifier.height(20.dp))
-
-                    val statusText = if (isUnlocked) "OTKLJUČANO"
-                                    else if (waitMillis > 0) "Dostupno za: ${waitMillis / 60000} min"
-                                    else "SPREMNO ZA KORIŠTENJE"
+                    
+                    val statusText = if (isUnlocked) {
+                        val remaining = (lastUnlockElapsed + Constants.UNLOCK_DURATION_MS) - currentElapsed
+                        if (remaining > 0) {
+                            val m = remaining / 60000
+                            val s = (remaining % 60000) / 1000
+                            "OTKLJUČANO: ${m}m ${s}s"
+                        } else "BLOKIRANO"
+                    } else if (waitMillis > 0) {
+                        val m = waitMillis / 60000
+                        val s = (waitMillis % 60000) / 1000
+                        "Dostupno za: ${m}m ${s}s"
+                    } else "SPREMNO ZA KORIŠTENJE"
 
                     Text(statusText, color = Color.Gray, fontSize = 14.sp)
                 }
@@ -91,17 +116,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun startWorker() {
-        val work = OneTimeWorkRequestBuilder<InstagramLimitWorker>().build()
-        WorkManager.getInstance(this).enqueueUniqueWork("ig_worker", ExistingWorkPolicy.REPLACE, work)
-    }
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val nm = getSystemService(NotificationManager::class.java)
-            val channel = NotificationChannel(Constants.CHANNEL_ID, "IG Block", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Instagram Blocker Status"
-            }
+            val channel = NotificationChannel(Constants.CHANNEL_ID, "IG Blocker", NotificationManager.IMPORTANCE_HIGH)
             nm.createNotificationChannel(channel)
         }
     }

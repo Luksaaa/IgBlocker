@@ -7,7 +7,7 @@ object Constants {
     
     // --- LAKO ZA PROMIJENITI ---
     private const val MINUTES_TO_USE = 1.0     // Koliko minuta se može koristiti
-    private const val MINUTES_TO_WAIT = 60.0   // Koliko minuta se čeka nakon korištenja
+    private const val MINUTES_TO_WAIT = 60   // Koliko minuta se čeka nakon korištenja
     // --------------------------
 
     const val UNLOCK_DURATION_MS = (MINUTES_TO_USE * 60 * 1000).toLong()
