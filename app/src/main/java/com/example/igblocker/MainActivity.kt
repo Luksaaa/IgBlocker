@@ -56,9 +56,12 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            // isBlockingActive: false -> Gumb prikazuje "ON" (zeleno, blokiranje ugašeno)
+            // isBlockingActive: true  -> Gumb prikazuje "OFF" (crveno, blokiranje aktivno)
             var isBlockingActive by remember { mutableStateOf(prefs.getBoolean("is_blocking_active", false)) }
             var blockedPackages by remember { mutableStateOf(prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()) }
             var showAppPicker by remember { mutableStateOf(false) }
+            var timeLeftToUnlock by remember { mutableStateOf("") }
             
             val appUsageMap = remember { mutableStateMapOf<String, Long>() }
 
@@ -68,6 +71,22 @@ class MainActivity : ComponentActivity() {
                     val currentPackages = prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()
                     blockedPackages = currentPackages
                     
+                    if (isBlockingActive) {
+                        val activationTime = prefs.getLong("block_activation_time", 0L)
+                        val elapsed = System.currentTimeMillis() - activationTime
+                        val remaining = Constants.USAGE_WINDOW_MS - elapsed
+                        
+                        if (remaining > 0) {
+                            val hours = TimeUnit.MILLISECONDS.toHours(remaining)
+                            val minutes = TimeUnit.MILLISECONDS.toMinutes(remaining) % 60
+                            timeLeftToUnlock = String.format("%02dh %02dm", hours, minutes)
+                        } else {
+                            timeLeftToUnlock = ""
+                        }
+                    } else {
+                        timeLeftToUnlock = ""
+                    }
+
                     currentPackages.forEach { pkg ->
                         appUsageMap[pkg] = intelligentMonitoring.getUsageTime(pkg)
                     }
@@ -120,15 +139,15 @@ class MainActivity : ComponentActivity() {
                                         val usedMs = appUsageMap[pkg] ?: 0L
                                         val remainingMs = maxOf(0L, Constants.USAGE_LIMIT_MS - usedMs)
                                         val min = TimeUnit.MILLISECONDS.toMinutes(remainingMs)
-                                        Text("${min}m", color = if (remainingMs > 0) Color.Gray else Color.Red, fontSize = 10.sp)
+                                        Text("${min}m", color = if (remainingMs > 0) Color.Gray else Color.Red, fontSize = 12.sp)
                                     }
-                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Spacer(modifier = Modifier.width(16.dp))
                                 }
                             }
                         }
                         
                         Box(
-                            modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.DarkGray).clickable { 
+                            modifier = Modifier.size(60.dp).clip(CircleShape).background(Color.DarkGray).clickable { 
                                 showAppPicker = true 
                             },
                             contentAlignment = Alignment.Center
@@ -146,22 +165,36 @@ class MainActivity : ComponentActivity() {
                             .background(if (!isBlockingActive) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
                                 if (!isBlockingActive) {
+                                    // Želimo UPALITI blokiranje (Prebacujemo na OFF stanje)
                                     if (!isAdminActive()) { checkAndRequestDeviceAdmin(); return@clickable }
                                     if (!isUsageAccessGranted()) { openUsageAccessSettings(); return@clickable }
                                     if (!isAccessibilityServiceEnabled()) { openAccessibilitySettings(); return@clickable }
 
-                                    prefs.edit { putBoolean("is_blocking_active", true) }
+                                    prefs.edit { 
+                                        putBoolean("is_blocking_active", true) 
+                                        putLong("block_activation_time", System.currentTimeMillis())
+                                    }
                                     isBlockingActive = true
                                     startBlockService()
                                 } else {
-                                    prefs.edit { putBoolean("is_blocking_active", false) }
-                                    isBlockingActive = false
-                                    stopService(Intent(this@MainActivity, BlockForegroundService::class.java))
+                                    // Želimo UGASITI blokiranje (Prebacujemo na ON stanje)
+                                    val activationTime = prefs.getLong("block_activation_time", 0L)
+                                    val elapsed = System.currentTimeMillis() - activationTime
+                                    
+                                    if (elapsed < Constants.USAGE_WINDOW_MS) {
+                                        Toast.makeText(this@MainActivity, "Morate čekati 2 sata. Preostalo: $timeLeftToUnlock", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        prefs.edit { putBoolean("is_blocking_active", false) }
+                                        isBlockingActive = false
+                                        stopService(Intent(this@MainActivity, BlockForegroundService::class.java))
+                                    }
                                 }
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(if (!isBlockingActive) "START" else "STOP", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
+                        // ON (Zeleno) znači "Sve je dozvoljeno"
+                        // OFF (Crveno) znači "Blokiranje je aktivno"
+                        Text(if (!isBlockingActive) "ON" else "OFF", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
                     }
                     
                     Spacer(modifier = Modifier.height(30.dp))
@@ -169,8 +202,8 @@ class MainActivity : ComponentActivity() {
                     Text(if (isBlockingActive) "STATUS: BLOKIRANJE AKTIVNO" else "STATUS: UGAŠENO", 
                         color = if (isBlockingActive) Color.Red else Color.Green, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     
-                    if (isBlockingActive) {
-                        Text("Limit: 30min / 2h", color = Color.Gray, fontSize = 12.sp)
+                    if (isBlockingActive && timeLeftToUnlock.isNotEmpty()) {
+                        Text("Otključavanje za: $timeLeftToUnlock", color = Color.Gray, fontSize = 14.sp)
                     }
                 }
 
@@ -180,7 +213,6 @@ class MainActivity : ComponentActivity() {
                         onAppSelected = { pkg ->
                             val newSet = blockedPackages.toMutableSet()
                             if (isBlockingActive) {
-                                // Kad je aktivno, dozvoljeno samo dodavanje novih
                                 if (!newSet.contains(pkg)) {
                                     newSet.add(pkg)
                                     prefs.edit { putStringSet("blocked_packages", newSet) }
@@ -189,7 +221,6 @@ class MainActivity : ComponentActivity() {
                                     Toast.makeText(this@MainActivity, "Već je na popisu!", Toast.LENGTH_SHORT).show()
                                 }
                             } else {
-                                // Kad je ugašeno, dozvoljeno i dodavanje i micanje (toggle)
                                 if (newSet.contains(pkg)) newSet.remove(pkg) else newSet.add(pkg)
                                 prefs.edit { putStringSet("blocked_packages", newSet) }
                                 blockedPackages = newSet
@@ -209,7 +240,7 @@ class MainActivity : ComponentActivity() {
         val icon = remember(packageName) { try { context.packageManager.getApplicationIcon(packageName) } catch (e: Exception) { null } }
         icon?.let {
             Image(bitmap = it.toBitmap().asImageBitmap(), contentDescription = null, 
-                modifier = Modifier.size(50.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick))
+                modifier = Modifier.size(60.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick))
         }
     }
 
@@ -265,7 +296,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openAccessibilitySettings() {
-        Toast.makeText(this, "Molimo uključite 'IG Blocker' u postavkama Pristupačnosti", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Molimo uključite 'Blocky' u postavkama Pristupačnosti", Toast.LENGTH_LONG).show()
     }
 
     private fun isAdminActive(): Boolean {
@@ -291,6 +322,6 @@ class MainActivity : ComponentActivity() {
 
     private fun createNotificationChannel() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(Constants.CHANNEL_ID, "IG Blocker Service", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(Constants.CHANNEL_ID, "Blocky Service", NotificationManager.IMPORTANCE_LOW))
     }
 }

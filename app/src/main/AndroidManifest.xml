@@ -10,7 +10,7 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
 
     <application
-        android:label="IG Blocker"
+        android:label="Blocky"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.IGBlocker">
