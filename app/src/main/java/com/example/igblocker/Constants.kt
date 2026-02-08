@@ -10,10 +10,8 @@ object Constants {
     
     val DEFAULT_APPS = listOf(INSTAGRAM_PKG, WHATSAPP_PKG, SNAPCHAT_PKG)
 
-    // Konfiguracija vremena
-    private const val MINUTES_TO_USE = 1.0
-    private const val MINUTES_TO_WAIT = 60.0
-
-    const val UNLOCK_DURATION_MS = (MINUTES_TO_USE * 60 * 1000).toLong()
-    const val COOLDOWN_DURATION_MS = (MINUTES_TO_WAIT * 60 * 1000).toLong()
+    // Inteligentno praćenje
+    const val USAGE_WINDOW_MS = 2 * 60 * 60 * 1000L // 2 sata
+    const val USAGE_LIMIT_MS = 2 * 60 * 1000L      // 30 minuta limita
+    const val BLOCK_DURATION_MS = 2 * 60 * 1000L   // Trajanje blokade
 }
