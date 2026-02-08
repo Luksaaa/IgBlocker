@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
-import android.text.TextUtils
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -39,28 +38,42 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.edit
 import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.delay
+import java.util.concurrent.TimeUnit
 
 class MainActivity : ComponentActivity() {
 
+    private lateinit var intelligentMonitoring: IntelligentMonitoring
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        intelligentMonitoring = IntelligentMonitoring(this)
         createNotificationChannel()
 
         val prefs = getSharedPreferences("ig_prefs", Context.MODE_PRIVATE)
         if (!prefs.contains("blocked_packages")) {
-            prefs.edit { putStringSet("blocked_packages", Constants.DEFAULT_APPS.toSet()) }
+            prefs.edit { putStringSet("blocked_packages", emptySet()) }
         }
 
         setContent {
             var isBlockingActive by remember { mutableStateOf(prefs.getBoolean("is_blocking_active", false)) }
             var blockedPackages by remember { mutableStateOf(prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()) }
             var showAppPicker by remember { mutableStateOf(false) }
+            
+            // Stanje za praćenje vremena korištenja svake aplikacije
+            val appUsageMap = remember { mutableStateMapOf<String, Long>() }
 
             LaunchedEffect(Unit) {
                 while (true) {
                     isBlockingActive = prefs.getBoolean("is_blocking_active", false)
-                    blockedPackages = prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()
-                    delay(1000)
+                    val currentPackages = prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()
+                    blockedPackages = currentPackages
+                    
+                    // Ažuriraj potrošeno vrijeme za svaku aplikaciju
+                    currentPackages.forEach { pkg ->
+                        appUsageMap[pkg] = intelligentMonitoring.getUsageTime(pkg)
+                    }
+                    
+                    delay(5000) // Osvježavaj svakih 5 sekundi
                 }
             }
 
@@ -72,53 +85,54 @@ class MainActivity : ComponentActivity() {
                 ) {
                     // --- IKONE ---
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 40.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val displayList = remember(blockedPackages) {
-                            blockedPackages.toList().take(4)
-                        }
+                        if (blockedPackages.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(end = 12.dp)
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(Color.DarkGray.copy(alpha = 0.5f))
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                            ) {
+                                Text("ovdje su blokirane aplikacije", color = Color.LightGray, fontSize = 10.sp)
+                            }
+                        } else {
+                            val displayList = remember(blockedPackages) {
+                                blockedPackages.toList().take(4)
+                            }
 
-                        displayList.forEach { pkg ->
-                            AppIcon(pkg, onClick = { 
-                                if (isBlockingActive) {
-                                    Toast.makeText(this@MainActivity, "Nema micanja dok je blokiranje aktivno!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    val newSet = blockedPackages.toMutableSet()
-                                    newSet.remove(pkg)
-                                    prefs.edit { putStringSet("blocked_packages", newSet) }
-                                    blockedPackages = newSet
+                            displayList.forEach { pkg ->
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    AppIcon(pkg, onClick = { 
+                                        val newSet = blockedPackages.toMutableSet()
+                                        newSet.remove(pkg)
+                                        prefs.edit { putStringSet("blocked_packages", newSet) }
+                                        blockedPackages = newSet
+                                    })
+                                    
+                                    val usedMs = appUsageMap[pkg] ?: 0L
+                                    val remainingMs = maxOf(0L, Constants.USAGE_LIMIT_MS - usedMs)
+                                    val min = TimeUnit.MILLISECONDS.toMinutes(remainingMs)
+                                    Text("${min}m", color = if (remainingMs > 0) Color.Gray else Color.Red, fontSize = 10.sp)
                                 }
-                            })
-                            Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
+                            }
                         }
-
-                        // Novi ovalni tekst
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(Color.DarkGray.copy(alpha = 0.5f))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text("ovdje su blokirane aplikacije", color = Color.LightGray, fontSize = 10.sp)
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
                         
                         Box(
                             modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.DarkGray).clickable { 
-                                if (isBlockingActive) {
-                                    Toast.makeText(this@MainActivity, "Onemogućeno!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    showAppPicker = true 
-                                }
+                                showAppPicker = true 
                             },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Add", tint = Color.White)
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(20.dp))
 
                     // --- GLAVNI GUMB ---
                     Box(
@@ -127,7 +141,6 @@ class MainActivity : ComponentActivity() {
                             .background(if (!isBlockingActive) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
                                 if (!isBlockingActive) {
-                                    // Provjere prije pokretanja
                                     if (!isAdminActive()) { checkAndRequestDeviceAdmin(); return@clickable }
                                     if (!isUsageAccessGranted()) { openUsageAccessSettings(); return@clickable }
                                     if (!isAccessibilityServiceEnabled()) { openAccessibilitySettings(); return@clickable }
@@ -147,10 +160,14 @@ class MainActivity : ComponentActivity() {
                     }
                     
                     Spacer(modifier = Modifier.height(30.dp))
+                    
+                    // STATUS I INFO
                     Text(if (isBlockingActive) "STATUS: BLOKIRANJE AKTIVNO" else "STATUS: UGAŠENO", 
                         color = if (isBlockingActive) Color.Red else Color.Green, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     
-                    Text("Limit: 1 min (Testni mod)", color = Color.Gray, fontSize = 12.sp)
+                    if (isBlockingActive) {
+                        Text("Limit: 30min / 2h", color = Color.Gray, fontSize = 12.sp)
+                    }
                 }
 
                 if (showAppPicker) {
