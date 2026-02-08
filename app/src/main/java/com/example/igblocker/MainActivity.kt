@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,7 +60,6 @@ class MainActivity : ComponentActivity() {
             var blockedPackages by remember { mutableStateOf(prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()) }
             var showAppPicker by remember { mutableStateOf(false) }
             
-            // Stanje za praćenje vremena korištenja svake aplikacije
             val appUsageMap = remember { mutableStateMapOf<String, Long>() }
 
             LaunchedEffect(Unit) {
@@ -68,12 +68,11 @@ class MainActivity : ComponentActivity() {
                     val currentPackages = prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()
                     blockedPackages = currentPackages
                     
-                    // Ažuriraj potrošeno vrijeme za svaku aplikaciju
                     currentPackages.forEach { pkg ->
                         appUsageMap[pkg] = intelligentMonitoring.getUsageTime(pkg)
                     }
                     
-                    delay(5000) // Osvježavaj svakih 5 sekundi
+                    delay(5000)
                 }
             }
 
@@ -100,25 +99,31 @@ class MainActivity : ComponentActivity() {
                                 Text("ovdje su blokirane aplikacije", color = Color.LightGray, fontSize = 10.sp)
                             }
                         } else {
-                            val displayList = remember(blockedPackages) {
-                                blockedPackages.toList().take(4)
-                            }
-
-                            displayList.forEach { pkg ->
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    AppIcon(pkg, onClick = { 
-                                        val newSet = blockedPackages.toMutableSet()
-                                        newSet.remove(pkg)
-                                        prefs.edit { putStringSet("blocked_packages", newSet) }
-                                        blockedPackages = newSet
-                                    })
-                                    
-                                    val usedMs = appUsageMap[pkg] ?: 0L
-                                    val remainingMs = maxOf(0L, Constants.USAGE_LIMIT_MS - usedMs)
-                                    val min = TimeUnit.MILLISECONDS.toMinutes(remainingMs)
-                                    Text("${min}m", color = if (remainingMs > 0) Color.Gray else Color.Red, fontSize = 10.sp)
+                            LazyRow(
+                                modifier = Modifier.weight(1f, fill = false),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(blockedPackages.toList()) { pkg ->
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        AppIcon(pkg, onClick = { 
+                                            if (isBlockingActive) {
+                                                Toast.makeText(this@MainActivity, "Nije moguće ukloniti dok je aktivno!", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                val newSet = blockedPackages.toMutableSet()
+                                                newSet.remove(pkg)
+                                                prefs.edit { putStringSet("blocked_packages", newSet) }
+                                                blockedPackages = newSet
+                                            }
+                                        })
+                                        
+                                        val usedMs = appUsageMap[pkg] ?: 0L
+                                        val remainingMs = maxOf(0L, Constants.USAGE_LIMIT_MS - usedMs)
+                                        val min = TimeUnit.MILLISECONDS.toMinutes(remainingMs)
+                                        Text("${min}m", color = if (remainingMs > 0) Color.Gray else Color.Red, fontSize = 10.sp)
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
                                 }
-                                Spacer(modifier = Modifier.width(12.dp))
                             }
                         }
                         
@@ -161,7 +166,6 @@ class MainActivity : ComponentActivity() {
                     
                     Spacer(modifier = Modifier.height(30.dp))
                     
-                    // STATUS I INFO
                     Text(if (isBlockingActive) "STATUS: BLOKIRANJE AKTIVNO" else "STATUS: UGAŠENO", 
                         color = if (isBlockingActive) Color.Red else Color.Green, fontSize = 16.sp, fontWeight = FontWeight.Medium)
                     
@@ -175,11 +179,24 @@ class MainActivity : ComponentActivity() {
                         onDismiss = { showAppPicker = false },
                         onAppSelected = { pkg ->
                             val newSet = blockedPackages.toMutableSet()
-                            if (newSet.contains(pkg)) newSet.remove(pkg) else newSet.add(pkg)
-                            prefs.edit { putStringSet("blocked_packages", newSet) }
-                            blockedPackages = newSet
+                            if (isBlockingActive) {
+                                // Kad je aktivno, dozvoljeno samo dodavanje novih
+                                if (!newSet.contains(pkg)) {
+                                    newSet.add(pkg)
+                                    prefs.edit { putStringSet("blocked_packages", newSet) }
+                                    blockedPackages = newSet
+                                } else {
+                                    Toast.makeText(this@MainActivity, "Već je na popisu!", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                // Kad je ugašeno, dozvoljeno i dodavanje i micanje (toggle)
+                                if (newSet.contains(pkg)) newSet.remove(pkg) else newSet.add(pkg)
+                                prefs.edit { putStringSet("blocked_packages", newSet) }
+                                blockedPackages = newSet
+                            }
                         },
-                        selectedApps = blockedPackages
+                        selectedApps = blockedPackages,
+                        isBlockingActive = isBlockingActive
                     )
                 }
             }
@@ -197,7 +214,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun AppPickerDialog(onDismiss: () -> Unit, onAppSelected: (String) -> Unit, selectedApps: Set<String>) {
+    fun AppPickerDialog(onDismiss: () -> Unit, onAppSelected: (String) -> Unit, selectedApps: Set<String>, isBlockingActive: Boolean) {
         val context = LocalContext.current
         val apps = remember {
             context.packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
@@ -211,7 +228,13 @@ class MainActivity : ComponentActivity() {
                 LazyColumn(modifier = Modifier.height(400.dp)) {
                     items(apps) { app ->
                         val isSelected = selectedApps.contains(app.packageName)
-                        Row(modifier = Modifier.fillMaxWidth().clickable { onAppSelected(app.packageName) }.padding(8.dp),
+                        Row(modifier = Modifier.fillMaxWidth().clickable { 
+                            if (isBlockingActive && isSelected) {
+                                Toast.makeText(context, "Nije moguće ukloniti dok je aktivno!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                onAppSelected(app.packageName)
+                            }
+                        }.padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically) {
                             AppIcon(app.packageName, onClick = {})
                             Spacer(modifier = Modifier.width(12.dp))
