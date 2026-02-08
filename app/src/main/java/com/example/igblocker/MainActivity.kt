@@ -82,17 +82,37 @@ class MainActivity : ComponentActivity() {
 
                         displayList.forEach { pkg ->
                             AppIcon(pkg, onClick = { 
-                                val newSet = blockedPackages.toMutableSet()
-                                newSet.remove(pkg)
-                                prefs.edit { putStringSet("blocked_packages", newSet) }
-                                blockedPackages = newSet
+                                if (isBlockingActive) {
+                                    Toast.makeText(this@MainActivity, "Nema micanja dok je blokiranje aktivno!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val newSet = blockedPackages.toMutableSet()
+                                    newSet.remove(pkg)
+                                    prefs.edit { putStringSet("blocked_packages", newSet) }
+                                    blockedPackages = newSet
+                                }
                             })
                             Spacer(modifier = Modifier.width(12.dp))
                         }
+
+                        // Novi ovalni tekst
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color.DarkGray.copy(alpha = 0.5f))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text("ovdje su blokirane aplikacije", color = Color.LightGray, fontSize = 10.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
                         
                         Box(
                             modifier = Modifier.size(50.dp).clip(CircleShape).background(Color.DarkGray).clickable { 
-                                showAppPicker = true 
+                                if (isBlockingActive) {
+                                    Toast.makeText(this@MainActivity, "Onemogućeno!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    showAppPicker = true 
+                                }
                             },
                             contentAlignment = Alignment.Center
                         ) {
