@@ -72,6 +72,9 @@ class MainActivity : ComponentActivity() {
             val lastUnlockElapsed = prefs.getLong("unlock_start_elapsed", 0L)
             val waitMillis = (lastUnlockElapsed + Constants.COOLDOWN_DURATION_MS) - currentElapsed
 
+            // Ključna logika: Da li je blokada aktivna?
+            val isBlockingActive = !isUnlocked
+
             Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                 Column(
                     modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -95,10 +98,14 @@ class MainActivity : ComponentActivity() {
 
                         displayList.forEach { pkg ->
                             AppIcon(pkg, onClick = { 
-                                val newSet = blockedPackages.toMutableSet()
-                                newSet.remove(pkg)
-                                prefs.edit { putStringSet("blocked_packages", newSet) }
-                                blockedPackages = newSet
+                                if (isBlockingActive) {
+                                    Toast.makeText(this@MainActivity, "Nema micanja dok je blokirano!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    val newSet = blockedPackages.toMutableSet()
+                                    newSet.remove(pkg)
+                                    prefs.edit { putStringSet("blocked_packages", newSet) }
+                                    blockedPackages = newSet
+                                }
                             })
                             Spacer(modifier = Modifier.width(12.dp))
                         }
@@ -108,7 +115,13 @@ class MainActivity : ComponentActivity() {
                                 .size(50.dp)
                                 .clip(CircleShape)
                                 .background(Color.DarkGray)
-                                .clickable { showAppPicker = true },
+                                .clickable { 
+                                    if (isBlockingActive) {
+                                        Toast.makeText(this@MainActivity, "Nema dodavanja dok je blokirano!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        showAppPicker = true 
+                                    }
+                                },
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(Icons.Default.Add, contentDescription = "Add", tint = Color.White)
@@ -180,10 +193,15 @@ class MainActivity : ComponentActivity() {
                     AppPickerDialog(
                         onDismiss = { showAppPicker = false },
                         onAppSelected = { pkg ->
-                            val newSet = blockedPackages.toMutableSet()
-                            if (newSet.contains(pkg)) newSet.remove(pkg) else newSet.add(pkg)
-                            prefs.edit { putStringSet("blocked_packages", newSet) }
-                            blockedPackages = newSet
+                            // I unutar dijaloga provjeravamo (za svaki slučaj)
+                            if (isBlockingActive) {
+                                Toast.makeText(this@MainActivity, "Blokada je aktivna!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                val newSet = blockedPackages.toMutableSet()
+                                if (newSet.contains(pkg)) newSet.remove(pkg) else newSet.add(pkg)
+                                prefs.edit { putStringSet("blocked_packages", newSet) }
+                                blockedPackages = newSet
+                            }
                         },
                         selectedApps = blockedPackages
                     )
