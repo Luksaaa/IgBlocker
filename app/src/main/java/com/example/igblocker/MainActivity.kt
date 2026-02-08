@@ -11,6 +11,7 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
+import android.text.TextUtils
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -51,8 +52,6 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            // isBlockingActive: false -> Gumb prikazuje "ON" (zeleno, ali blokiranje je ugašeno)
-            // isBlockingActive: true  -> Gumb prikazuje "OFF" (crveno, blokiranje je aktivno)
             var isBlockingActive by remember { mutableStateOf(prefs.getBoolean("is_blocking_active", false)) }
             var blockedPackages by remember { mutableStateOf(prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()) }
             var showAppPicker by remember { mutableStateOf(false) }
@@ -108,15 +107,15 @@ class MainActivity : ComponentActivity() {
                             .background(if (!isBlockingActive) Color(0xFF00C853) else Color.Red, CircleShape)
                             .clickable {
                                 if (!isBlockingActive) {
-                                    // Želimo AKTIVIRATI blokiranje (Prebacujemo na OFF stanje)
+                                    // Provjere prije pokretanja
                                     if (!isAdminActive()) { checkAndRequestDeviceAdmin(); return@clickable }
                                     if (!isUsageAccessGranted()) { openUsageAccessSettings(); return@clickable }
+                                    if (!isAccessibilityServiceEnabled()) { openAccessibilitySettings(); return@clickable }
 
                                     prefs.edit { putBoolean("is_blocking_active", true) }
                                     isBlockingActive = true
                                     startBlockService()
                                 } else {
-                                    // Želimo UGASITI blokiranje (Prebacujemo na ON stanje)
                                     prefs.edit { putBoolean("is_blocking_active", false) }
                                     isBlockingActive = false
                                     stopService(Intent(this@MainActivity, BlockForegroundService::class.java))
@@ -124,14 +123,14 @@ class MainActivity : ComponentActivity() {
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        // ON znači "Sve je ok, aplikacija ne blokira"
-                        // OFF znači "Blokiranje je aktivno"
-                        Text(if (!isBlockingActive) "ON" else "OFF", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
+                        Text(if (!isBlockingActive) "START" else "STOP", color = Color.White, fontSize = 44.sp, fontWeight = FontWeight.Bold)
                     }
                     
                     Spacer(modifier = Modifier.height(30.dp))
-                    Text(if (isBlockingActive) "Blokiranje AKTIVNO (Limit: 30min / 2h)" else "Blokiranje UGAŠENO", 
-                        color = Color.Gray, fontSize = 14.sp)
+                    Text(if (isBlockingActive) "STATUS: BLOKIRANJE AKTIVNO" else "STATUS: UGAŠENO", 
+                        color = if (isBlockingActive) Color.Red else Color.Green, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                    
+                    Text("Limit: 1 min (Testni mod)", color = Color.Gray, fontSize = 12.sp)
                 }
 
                 if (showAppPicker) {
@@ -199,6 +198,16 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val expectedComponentName = ComponentName(this, IGAccessibilityService::class.java).flattenToString()
+        val enabledServices = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        return enabledServices?.contains(expectedComponentName) == true
+    }
+
+    private fun openAccessibilitySettings() {
+        Toast.makeText(this, "Molimo uključite 'IG Blocker' u postavkama Pristupačnosti", Toast.LENGTH_LONG).show()
+    }
+
     private fun isAdminActive(): Boolean {
         val dpm = getSystemService(DevicePolicyManager::class.java)
         return dpm.isAdminActive(ComponentName(this, MyDeviceAdminReceiver::class.java))
@@ -209,7 +218,7 @@ class MainActivity : ComponentActivity() {
         val componentName = ComponentName(this, MyDeviceAdminReceiver::class.java)
         val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, componentName)
-            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Zaštita aplikacije.")
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Potrebno za blokiranje.")
         }
         startActivity(intent)
     }
@@ -217,13 +226,11 @@ class MainActivity : ComponentActivity() {
     private fun startBlockService() {
         try {
             startForegroundService(Intent(this, BlockForegroundService::class.java))
-        } catch (e: Exception) {
-            Toast.makeText(this, "Greška pri pokretanju servisa: ${e.message}", Toast.LENGTH_LONG).show()
-        }
+        } catch (e: Exception) {}
     }
 
     private fun createNotificationChannel() {
         val nm = getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(NotificationChannel(Constants.CHANNEL_ID, "System Sync", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(NotificationChannel(Constants.CHANNEL_ID, "IG Blocker Service", NotificationManager.IMPORTANCE_LOW))
     }
 }

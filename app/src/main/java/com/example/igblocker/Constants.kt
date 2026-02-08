@@ -12,6 +12,6 @@ object Constants {
 
     // Inteligentno praćenje
     const val USAGE_WINDOW_MS = 2 * 60 * 60 * 1000L // 2 sata
-    const val USAGE_LIMIT_MS = 2 * 60 * 1000L      // 30 minuta limita
-    const val BLOCK_DURATION_MS = 2 * 60 * 1000L   // Trajanje blokade
+    const val USAGE_LIMIT_MS = 1 * 60 * 1000L       // SMANJENO NA 1 MINUTU ZA TEST!
+    const val BLOCK_DURATION_MS = 30 * 60 * 1000L   // Trajanje blokade
 }
