@@ -11,7 +11,7 @@ object Constants {
     val DEFAULT_APPS = listOf(INSTAGRAM_PKG, WHATSAPP_PKG, SNAPCHAT_PKG)
 
     // Inteligentno praćenje
-    const val USAGE_WINDOW_MS = 2 * 60 * 60 * 1000L // 2 sata
+    const val USAGE_WINDOW_MS = 2 * 60 * 1000L // 2 sata
     const val USAGE_LIMIT_MS = 2 * 60 * 1000L      // 30 minuta limita
     const val BLOCK_DURATION_MS = 2 * 60 * 1000L   // Trajanje blokade
 }

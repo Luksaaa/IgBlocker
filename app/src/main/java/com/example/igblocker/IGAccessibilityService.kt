@@ -17,31 +17,31 @@ class IGAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: return
 
-        // 🛡️ ZAŠTITA OD DEINSTALACIJE I GAŠENJA (Samo za IG Blocker)
-        // Provjeravamo sustavne postavke i instalater paketa
+        // 🛡️ ZAŠTITA OD DEINSTALACIJE I GAŠENJA (Samo za Blocky)
         if (packageName == "com.android.settings" || packageName == "com.google.android.packageinstaller" || packageName == "com.android.packageinstaller") {
             val rootNode = rootInActiveWindow ?: return
             
-            // Tražimo tekst "IG Blocker" na ekranu postavki
-            val nodes = rootNode.findAccessibilityNodeInfosByText("IG Blocker")
+            // Tražimo tekst "Blocky" na ekranu (naziv aplikacije)
+            val nodes = rootNode.findAccessibilityNodeInfosByText("Blocky")
             if (nodes.isNotEmpty()) {
                 val allText = getAllText(rootNode).lowercase()
                 
-                // Ključne riječi koje ukazuju na pokušaj micanja ili gašenja aplikacije
+                // Ključne riječi koje ukazuju na pokušaj micanja, gašenja ili micanja admin ovlasti
                 val dangerousKeywords = listOf(
                     "uninstall", "deinstall", "ukloni", "obriši", "izbriši", 
-                    "force stop", "prisilno zaustavi", "clear data", "očisti podatke", "pohrana"
+                    "force stop", "prisilno zaustavi", "clear data", "očisti podatke", "pohrana",
+                    "deactivate", "deaktiviraj", "admin", "administrator"
                 )
                 
                 if (dangerousKeywords.any { allText.contains(it) }) {
-                    // Ako korisnik pokuša kliknuti na bilo što od ovoga za našu aplikaciju, baci ga na Home
+                    // Ako detektiramo pokušaj micanja zaštite, baci korisnika na Home screen
                     performGlobalAction(GLOBAL_ACTION_HOME)
                     return
                 }
             }
         }
 
-        // 🚫 PAMETNO BLOKIRANJE ODABRANIH APLIKACIJA (Postojeći kod)
+        // 🚫 PAMETNO BLOKIRANJE ODABRANIH APLIKACIJA
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             if (packageName == this.packageName || packageName == "com.android.settings") return
 
@@ -60,7 +60,6 @@ class IGAccessibilityService : AccessibilityService() {
         }
     }
 
-    // Pomoćna funkcija za čitanje cijelog teksta na ekranu
     private fun getAllText(node: AccessibilityNodeInfo?): String {
         if (node == null) return ""
         val sb = StringBuilder()

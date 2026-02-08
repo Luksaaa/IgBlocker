@@ -182,7 +182,7 @@ class MainActivity : ComponentActivity() {
                                     val elapsed = System.currentTimeMillis() - activationTime
                                     
                                     if (elapsed < Constants.USAGE_WINDOW_MS) {
-                                        Toast.makeText(this@MainActivity, "Morate čekati 2 sata. Preostalo: $timeLeftToUnlock", Toast.LENGTH_LONG).show()
+                                        Toast.makeText(this@MainActivity, "Morate čekati 2 sata.", Toast.LENGTH_LONG).show()
                                     } else {
                                         prefs.edit { putBoolean("is_blocking_active", false) }
                                         isBlockingActive = false
